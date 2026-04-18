@@ -61,9 +61,10 @@ status_filter = st.sidebar.multiselect(
     default=["Sufficient", "Moderate", "Congested"]
 )
 
-distributor_options = sorted(file2["distributor_network"].dropna().unique())
+# File 2 has no distributor_network — use File 3 for distributor filter
+distributor_options = sorted(file3["distributor_network"].dropna().unique())
 distributor_filter = st.sidebar.multiselect(
-    "Distributor",
+    "Distributor (friction points)",
     options=distributor_options,
     default=distributor_options
 )
@@ -83,11 +84,14 @@ st.sidebar.markdown("**IE Datathon March 2026**  \nIntelligent Electric Mobility
 # ── Apply filters ───────────────────────────────────────────────────────────
 filtered = file2[
     file2["grid_status"].isin(status_filter) &
-    file2["distributor_network"].isin(distributor_filter) &
     file2["route_segment"].isin(route_filter)
 ].copy()
 
 filtered["color"] = filtered["grid_status"].map(STATUS_RGB)
+
+filtered_friction = file3[
+    file3["distributor_network"].isin(distributor_filter)
+].copy()
 
 # ── Header ──────────────────────────────────────────────────────────────────
 st.title("⚡ EV Charging Network — Spain 2027")
@@ -153,8 +157,8 @@ with map_col:
         )
     ]
 
-    if show_friction and len(file3) > 0:
-        file3_map = file3.copy()
+    if show_friction and len(filtered_friction) > 0:
+        file3_map = filtered_friction.copy()
         file3_map["color"] = [[180, 0, 0]] * len(file3_map)
         layers.append(
             pdk.Layer(
@@ -178,8 +182,7 @@ with map_col:
             <b>{location_id}</b><br>
             Route: {route_segment}<br>
             Chargers: {n_chargers_proposed}<br>
-            Grid: {grid_status}<br>
-            Distributor: {distributor_network}
+            Grid: {grid_status}
         """,
         "style": {"backgroundColor": "white", "color": "black",
                   "fontSize": "13px", "padding": "8px", "borderRadius": "6px"}
@@ -225,20 +228,23 @@ with chart_col:
     )
     st.plotly_chart(fig_donut, use_container_width=True)
 
-    # Chargers by distributor
-    dist_summary = (
-        filtered.groupby("distributor_network")["n_chargers_proposed"]
+    # Chargers by grid status (since no distributor in File 2)
+    status_chargers = (
+        filtered.groupby("grid_status")["n_chargers_proposed"]
         .sum().reset_index().sort_values("n_chargers_proposed", ascending=True)
     )
+    status_chargers["color"] = status_chargers["grid_status"].map(STATUS_COLOR_HEX)
     fig_bar = px.bar(
-        dist_summary, x="n_chargers_proposed", y="distributor_network",
-        orientation="h", title="Chargers by distributor",
-        color_discrete_sequence=["#2c3e50"]
+        status_chargers, x="n_chargers_proposed", y="grid_status",
+        orientation="h", title="Chargers by grid status",
+        color="grid_status",
+        color_discrete_map=STATUS_COLOR_HEX,
     )
     fig_bar.update_layout(
         height=220, margin=dict(t=40, b=0, l=0, r=0),
         xaxis_title="", yaxis_title="",
         paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -253,13 +259,19 @@ route_summary = (
     .reset_index()
     .pivot_table(index="route_segment",
                  columns="grid_status",
-                 values=["stations","chargers"],
+                 values=["stations", "chargers"],
                  fill_value=0)
 )
 route_summary.columns = [f"{c[0]}_{c[1]}" for c in route_summary.columns]
 route_summary = route_summary.reset_index()
-route_summary["total_stations"] = filtered.groupby("route_segment")["location_id"].count().reindex(route_summary["route_segment"]).values
-route_summary["total_chargers"] = filtered.groupby("route_segment")["n_chargers_proposed"].sum().reindex(route_summary["route_segment"]).values
+route_summary["total_stations"] = (
+    filtered.groupby("route_segment")["location_id"]
+    .count().reindex(route_summary["route_segment"]).values
+)
+route_summary["total_chargers"] = (
+    filtered.groupby("route_segment")["n_chargers_proposed"]
+    .sum().reindex(route_summary["route_segment"]).values
+)
 route_summary["peak_demand_kw"] = route_summary["total_chargers"] * 150
 
 st.dataframe(
@@ -268,11 +280,13 @@ st.dataframe(
 )
 
 # ── Friction points table ───────────────────────────────────────────────────
-if show_friction and len(file3) > 0:
+if show_friction and len(filtered_friction) > 0:
     st.markdown("---")
     st.subheader("⚠ Friction points — grid reinforcement required")
     st.dataframe(
-        file3[["bottleneck_id","route_segment","distributor_network",
-               "grid_status","estimated_demand_kw","latitude","longitude"]],
+        filtered_friction[[
+            "bottleneck_id", "route_segment", "distributor_network",
+            "grid_status", "estimated_demand_kw", "latitude", "longitude"
+        ]],
         use_container_width=True, hide_index=True
     )
