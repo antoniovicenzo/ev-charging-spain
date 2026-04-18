@@ -30,9 +30,9 @@ st.markdown("""
 # ── Load data ───────────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    file2 = pd.read_csv("File 2.csv")
-    file3 = pd.read_csv("File 3.csv")
-    file1 = pd.read_csv("File 1.csv")
+    file2 = pd.read_csv("data/File 2.csv")
+    file3 = pd.read_csv("data/File 3.csv")
+    file1 = pd.read_csv("data/File 1.csv")
     return file2, file3, file1
 
 file2, file3, file1 = load_data()
